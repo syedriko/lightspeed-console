@@ -49,7 +49,7 @@ import ResourceIcon from './ResourceIcon';
 import ToolModal from './ResponseToolModal';
 
 const ALERTS_ENDPOINT = '/api/prometheus/api/v1/rules?type=alert';
-const QUERY_ENDPOINT = getApiUrl('/v1/streaming_query');
+const QUERY_ENDPOINT = getApiUrl('/v1/query');
 
 // Sanity check on the upload file size
 const MAX_FILE_SIZE_MB = 1;
@@ -506,16 +506,56 @@ const Prompt: React.FC<PromptProps> = ({ scrollIntoView }) => {
     };
 
     const streamResponse = async () => {
-      const controller = new AbortController();
-      setStreamController(controller);
-      const response = await consoleFetch(QUERY_ENDPOINT, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestJSON),
-        signal: controller.signal,
-      });
+    // const response = await consoleFetch(QUERY_ENDPOINT, {
+    //   method: 'POST',
+    //   headers: {
+    //     'Content-Type': 'application/json',
+    //   },
+    //   body: JSON.stringify(requestJSON),
+    // });
+let getCSRFToken = () => {
+    const cookiePrefix = 'csrf-token=';
+    return (document &&
+        document.cookie &&
+        document.cookie
+            .split(';')
+            .map((c) => c.trim())
+            .filter((c) => c.startsWith(cookiePrefix))
+            .map((c) => c.slice(cookiePrefix.length))
+            .pop());
+};
+
+let response = await fetch("/api/proxy/plugin/lightspeed-console-plugin/ols/v1/query", {
+    "credentials": "include",
+    "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:145.0) Gecko/20100101 Firefox/145.0",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Content-Type": "application/json",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        'X-CSRFToken': getCSRFToken(),
+        "Priority": "u=0"
+    },
+    // "body": "{\"attachments\":[],\"conversation_id\":null,\"media_type\":\"application/json\",\"query\":\"hi\"}",
+    "body": JSON.stringify(requestJSON),
+    "method": "POST",
+    "mode": "cors"
+});
+
+let body = await response.json();
+
+          dispatch(chatHistoryUpdateByID(chatEntryID, { text: body.response }));
+          dispatch(
+            chatHistoryUpdateByID(chatEntryID, {
+              isStreaming: false,
+              isTruncated: false,
+              references: body.referenced_documents,
+            }),
+          );
+
+
       if (response.ok === false) {
         dispatch(
           chatHistoryUpdateByID(chatEntryID, {
@@ -527,62 +567,72 @@ const Prompt: React.FC<PromptProps> = ({ scrollIntoView }) => {
         );
         return;
       }
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let responseText = '';
+
+ //    //const reader = response.body.getReader();
+ //    //const decoder = new TextDecoder();
+ //    let responseText = await response.body.json();
+ //    let json = JSON.parse(line);
+
+ //              dispatch(
+ //                chatHistoryUpdateByID(chatEntryID, {
+ //                  isStreaming: false,
+ //                  isTruncated: json.data.truncated === true,
+ //                  references: json.data.referenced_documents,
+ //                }),
+ //              );
       // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        const text = decoder.decode(value);
-        text
-          .split('\n')
-          .filter((s) => s.startsWith('data: '))
-          .forEach((s) => {
-            const line = s.slice(5).trim();
-            let json;
-            try {
-              json = JSON.parse(line);
-            } catch (parseError) {
-              // eslint-disable-next-line no-console
-              console.error(`Failed to parse JSON string "${line}"`, parseError);
-            }
-            if (json && json.event && json.data) {
-              if (json.event === 'start') {
-                dispatch(setConversationID(json.data.conversation_id));
-              } else if (json.event === 'token') {
-                responseText += json.data.token;
-                dispatch(chatHistoryUpdateByID(chatEntryID, { text: responseText }));
-              } else if (json.event === 'end') {
-                dispatch(
-                  chatHistoryUpdateByID(chatEntryID, {
-                    isStreaming: false,
-                    isTruncated: json.data.truncated === true,
-                    references: json.data.referenced_documents,
-                  }),
-                );
-              } else if (json.event === 'tool_call') {
-                const { args, id, name: toolName } = json.data;
-                dispatch(chatHistoryUpdateTool(chatEntryID, id, { name: toolName, args }));
-              } else if (json.event === 'tool_result') {
-                const { content, id, status } = json.data;
-                dispatch(chatHistoryUpdateTool(chatEntryID, id, { content, status }));
-              } else if (json.event === 'error') {
-                dispatch(
-                  chatHistoryUpdateByID(chatEntryID, {
-                    error: getFetchErrorMessage({ json: { detail: json.data } }, t),
-                    isStreaming: false,
-                  }),
-                );
-              } else {
-                // eslint-disable-next-line no-console
-                console.warn(`Unrecognized event in response stream:`, JSON.stringify(json));
-              }
-            }
-          });
-      }
+   //while (true) {
+   //  const { value, done } = await reader.read();
+   //  if (done) {
+   //    break;
+   //  }
+   //  const text = decoder.decode(value);
+   //  text
+   //    .split('\n')
+   //    .filter((s) => s.startsWith('data: '))
+   //    .forEach((s) => {
+   //      const line = s.slice(5).trim();
+   //      let json;
+   //      try {
+   //        json = JSON.parse(line);
+   //      } catch (parseError) {
+   //        // eslint-disable-next-line no-console
+   //        console.error(`Failed to parse JSON string "${line}"`, parseError);
+   //      }
+   //      if (json && json.event && json.data) {
+   //        if (json.event === 'start') {
+   //          dispatch(setConversationID(json.data.conversation_id));
+   //        } else if (json.event === 'token') {
+   //          responseText += json.data.token;
+   //          dispatch(chatHistoryUpdateByID(chatEntryID, { text: responseText }));
+   //        } else if (json.event === 'end') {
+   //          dispatch(
+   //            chatHistoryUpdateByID(chatEntryID, {
+   //              isStreaming: false,
+   //              isTruncated: json.data.truncated === true,
+   //              references: json.data.referenced_documents,
+   //            }),
+   //          );
+   //        } else if (json.event === 'tool_call') {
+   //          const { args, id, name: toolName } = json.data;
+   //          dispatch(chatHistoryUpdateTool(chatEntryID, id, { name: toolName, args }));
+   //        } else if (json.event === 'tool_result') {
+   //          const { content, id, status } = json.data;
+   //          dispatch(chatHistoryUpdateTool(chatEntryID, id, { content, status }));
+   //        } else if (json.event === 'error') {
+   //          dispatch(
+   //            chatHistoryUpdateByID(chatEntryID, {
+   //              error: getFetchErrorMessage({ json: { detail: json.data } }, t),
+   //              isStreaming: false,
+   //            }),
+   //          );
+   //        } else {
+   //          // eslint-disable-next-line no-console
+   //          console.warn(`Unrecognized event in response stream:`, JSON.stringify(json));
+   //        }
+   //      }
+   //    });
+   //}
     };
     streamResponse().catch((streamError) => {
       if (streamError.name !== 'AbortError') {
